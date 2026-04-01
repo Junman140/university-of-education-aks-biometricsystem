@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useNavigate } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   api,
   clearSession,
@@ -9,28 +9,41 @@ import {
   type TenantRow,
 } from "../api";
 
+function Tab({ prefix, to, children }: { prefix: string; to: string; children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  const active = pathname === prefix || pathname.startsWith(`${prefix}/`);
+  return (
+    <Link
+      to={to}
+      style={{
+        fontWeight: active ? 700 : 500,
+        color: active ? "#e0f2fe" : "#7dd3fc",
+        textDecoration: "none",
+        padding: "0.35rem 0.5rem",
+        borderBottom: active ? "2px solid #38bdf8" : "2px solid transparent",
+      }}
+    >
+      {children}
+    </Link>
+  );
+}
+
 export default function Layout({ onLogout }: { onLogout: () => void }) {
   const nav = useNavigate();
   const user = getUser();
   const isSuper = user?.role === "SUPER_ADMIN";
   const [tenantKey, setTenantKey] = useState(() => getSelectedTenantId() ?? "");
   const [tenants, setTenants] = useState<TenantRow[]>([]);
-  const [tenantReady, setTenantReady] = useState(() => getUser()?.role !== "SUPER_ADMIN");
+  const [tenantReady, setTenantReady] = useState(!isSuper);
 
   useEffect(() => {
-    if (!isSuper) {
-      setTenantReady(true);
-      return;
-    }
+    if (!isSuper) { setTenantReady(true); return; }
     setTenantReady(false);
     api<TenantRow[]>("/tenants")
       .then((list) => {
         setTenants(list);
         let tid = getSelectedTenantId();
-        if (!tid && list.length) {
-          tid = list[0].id;
-          setSelectedTenantId(tid);
-        }
+        if (!tid && list.length) { tid = list[0].id; setSelectedTenantId(tid); }
         setTenantKey(tid ?? "");
       })
       .catch(() => {})
@@ -39,43 +52,28 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
 
   return (
     <main>
-      <nav>
-        <Link to="/students">Students</Link>
-        <Link to="/exams">Exams</Link>
-        <Link to="/devices">Devices</Link>
-        <Link to="/reports">Reports</Link>
+      <nav style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem", borderBottom: "1px solid #1f2937", paddingBottom: "0.5rem" }}>
+        <Tab prefix="/students" to="/students">Students</Tab>
+        <Tab prefix="/exams" to="/exams">Exams</Tab>
+        <Tab prefix="/verify" to="/verify">Verify</Tab>
+        <Tab prefix="/settings" to="/settings">Settings</Tab>
         {isSuper && (
-          <label style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
-            <span>Tenant</span>
-            <select
-              value={tenantKey}
-              onChange={(e) => {
-                const v = e.target.value;
-                setSelectedTenantId(v || null);
-                setTenantKey(v);
-              }}
-            >
-              {tenants.length === 0 ? (
-                <option value="">No tenants — create one (API)</option>
-              ) : (
-                tenants.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
+          <select
+            value={tenantKey}
+            onChange={(e) => { setSelectedTenantId(e.target.value || null); setTenantKey(e.target.value); }}
+            style={{ marginLeft: "auto", maxWidth: 180 }}
+          >
+            {tenants.length === 0
+              ? <option value="">No tenants</option>
+              : tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)
+            }
+          </select>
         )}
         <button
           type="button"
           className="secondary"
-          style={{ marginLeft: "auto" }}
-          onClick={() => {
-            clearSession();
-            onLogout();
-            nav("/login");
-          }}
+          style={isSuper ? {} : { marginLeft: "auto" }}
+          onClick={() => { clearSession(); onLogout(); nav("/login"); }}
         >
           Log out
         </button>
@@ -85,17 +83,7 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
       ) : isSuper && tenants.length === 0 ? (
         <div className="card" style={{ maxWidth: 560, margin: "2rem auto" }}>
           <h2>No tenant yet</h2>
-          <p>
-            As <strong>SUPER_ADMIN</strong>, pick a tenant for student and device data. Create one first, then refresh
-            this page.
-          </p>
-          <p style={{ marginTop: "0.75rem" }}>
-            Example: <code>POST /tenants</code> with body{" "}
-            <code>
-              {`{ "name": "...", "slug": "...", "adminEmail": "...", "adminPassword": "..." }`}
-            </code>
-            , or run <code>pnpm db:seed</code> if your seed creates tenants.
-          </p>
+          <p>Create a tenant first via <code>POST /tenants</code> or <code>pnpm db:seed</code>, then refresh.</p>
         </div>
       ) : (
         <Outlet key={isSuper ? tenantKey : "default"} />

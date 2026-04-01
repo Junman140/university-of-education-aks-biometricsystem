@@ -6,6 +6,10 @@ type Row = {
   capturedAt: string;
   result: string;
   matchScore: number | null;
+  examId: string | null;
+  courseId: string | null;
+  academicYear: string | null;
+  semester: number | null;
   student: { matricNo: string; fullName: string };
   device: { name: string; hallLabel: string | null } | null;
 };
@@ -50,6 +54,9 @@ export default function Reports() {
               <th>When</th>
               <th>Result</th>
               <th>Score</th>
+              <th>Year</th>
+              <th>Sem</th>
+              <th>Course</th>
               <th>Student</th>
               <th>Device</th>
             </tr>
@@ -60,6 +67,11 @@ export default function Reports() {
                 <td>{new Date(r.capturedAt).toLocaleString()}</td>
                 <td>{r.result}</td>
                 <td>{r.matchScore ?? ""}</td>
+                <td>{r.academicYear ?? "—"}</td>
+                <td>{r.semester ?? "—"}</td>
+                <td>
+                  <code style={{ fontSize: "0.75rem" }}>{r.courseId ?? "—"}</code>
+                </td>
                 <td>
                   {r.student.matricNo} — {r.student.fullName}
                 </td>

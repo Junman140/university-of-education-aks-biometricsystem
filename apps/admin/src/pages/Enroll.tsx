@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 
@@ -95,6 +95,9 @@ export default function Enroll() {
 
   return (
     <>
+      <p>
+        <Link to="/students">← Students</Link>
+      </p>
       <h1>Fingerprint enrollment</h1>
       <div className="card">
         <p>

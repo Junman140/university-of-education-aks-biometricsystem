@@ -47,6 +47,10 @@ export async function reportRoutes(app: FastifyInstance) {
         capturedAt: r.capturedAt,
         result: r.result,
         matchScore: r.matchScore,
+        examId: r.examId ?? null,
+        courseId: r.courseId ?? null,
+        academicYear: r.academicYear ?? null,
+        semester: r.semester ?? null,
         student: sm.get(r.studentId) ?? { matricNo: "", fullName: "" },
         device: r.deviceId ? dm.get(r.deviceId) ?? null : null,
       }));
@@ -89,7 +93,8 @@ export async function reportRoutes(app: FastifyInstance) {
       const sm = new Map(students.map((s) => [s._id, s]));
       const dm = new Map(devices.map((d) => [d._id, d]));
 
-      const header = "capturedAt,result,matchScore,matricNo,fullName,device,hall\n";
+      const header =
+        "capturedAt,result,matchScore,examId,courseId,academicYear,semester,matricNo,fullName,device,hall\n";
       const lines = rows
         .map((r) => {
           const esc = (s: string | null | undefined) =>
@@ -100,6 +105,10 @@ export async function reportRoutes(app: FastifyInstance) {
             r.capturedAt.toISOString(),
             r.result,
             r.matchScore ?? "",
+            r.examId ?? "",
+            r.courseId ?? "",
+            r.academicYear ?? "",
+            r.semester ?? "",
             st?.matricNo ?? "",
             st?.fullName ?? "",
             dev?.name ?? "",

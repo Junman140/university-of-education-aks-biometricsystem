@@ -7,8 +7,16 @@ import type {
   StudentLean,
   VerificationEventLean,
 } from "../models/lean.js";
-import { BiometricEnrollment, Exam, ExamRosterEntry, Student, VerificationEvent } from "../models/schemas.js";
+import {
+  BiometricEnrollment,
+  CourseRegistration,
+  Exam,
+  ExamRosterEntry,
+  Student,
+  VerificationEvent,
+} from "../models/schemas.js";
 import { authenticateDevice } from "../lib/deviceAuth.js";
+import { resolveAcademicYearLabel } from "../lib/resolveAcademicYear.js";
 
 const Query = z.object({
   examId: z.string().min(1),
@@ -28,6 +36,22 @@ export async function syncRoutes(app: FastifyInstance) {
       const roster = await ExamRosterEntry.find({ examId: exam._id }).lean<ExamRosterEntryLean[]>();
       const studentIds = roster.map((r) => r.studentId);
       const students = await Student.find({ _id: { $in: studentIds }, tenantId }).lean<StudentLean[]>();
+
+      const sessionYear = await resolveAcademicYearLabel(tenantId, exam.academicSessionId, exam.academicYear);
+      let regByStudent: Map<string, boolean>;
+      if (exam.courseId && sessionYear && exam.semester != null) {
+        const regs = await CourseRegistration.find({
+          tenantId,
+          courseId: exam.courseId,
+          academicYear: sessionYear,
+          semester: exam.semester,
+          studentId: { $in: studentIds },
+        }).lean();
+        const regSet = new Set(regs.map((r) => r.studentId));
+        regByStudent = new Map(studentIds.map((sid) => [sid, regSet.has(sid)]));
+      } else {
+        regByStudent = new Map(studentIds.map((sid) => [sid, true]));
+      }
       const enrollments = await BiometricEnrollment.find({ studentId: { $in: studentIds } }).lean<BiometricEnrollmentLean[]>();
       const enrollByStudent = new Map<string, BiometricEnrollmentLean[]>();
       for (const e of enrollments) {
@@ -43,6 +67,7 @@ export async function syncRoutes(app: FastifyInstance) {
         fullName: st.fullName,
         photoUrl: st.photoUrl ?? null,
         hallLabel: rosterByStudent.get(st._id) ?? null,
+        eligibleForExam: regByStudent.get(st._id) ?? false,
         enrollments: (enrollByStudent.get(st._id) ?? []).map((e) => ({
           fingerCode: e.fingerCode,
           templateEncBase64: Buffer.from(e.templateEnc as Buffer).toString("base64"),
@@ -54,6 +79,10 @@ export async function syncRoutes(app: FastifyInstance) {
       return {
         examId: exam._id,
         title: exam.title,
+        courseId: exam.courseId ?? null,
+        academicSessionId: exam.academicSessionId ?? null,
+        academicYear: sessionYear ?? exam.academicYear ?? null,
+        semester: exam.semester ?? null,
         tenantId,
         students: outStudents,
       };
@@ -71,6 +100,10 @@ export async function syncRoutes(app: FastifyInstance) {
             z.object({
               studentId: z.string(),
               examId: z.string().optional(),
+              courseId: z.string().optional(),
+              academicSessionId: z.string().optional(),
+              academicYear: z.string().optional(),
+              semester: z.number().optional(),
               result: z.string(),
               matchScore: z.number().optional(),
               capturedAt: z.string().datetime().optional(),
@@ -93,6 +126,10 @@ export async function syncRoutes(app: FastifyInstance) {
                 deviceId: req.device!.id,
                 studentId: ev.studentId,
                 examId: ev.examId,
+                courseId: ev.courseId,
+                academicSessionId: ev.academicSessionId,
+                academicYear: ev.academicYear,
+                semester: ev.semester,
                 result: ev.result,
                 matchScore: ev.matchScore,
                 capturedAt,
@@ -103,17 +140,28 @@ export async function syncRoutes(app: FastifyInstance) {
           ).lean<VerificationEventLean | null>();
           if (row) ids.push(row._id);
         } else {
-          const row = await VerificationEvent.create({
-            tenantId,
-            deviceId: req.device!.id,
-            studentId: ev.studentId,
-            examId: ev.examId,
-            result: ev.result,
-            matchScore: ev.matchScore,
-            capturedAt,
-            syncedAt: new Date(),
-          });
-          ids.push(row._id);
+          try {
+            const row = await VerificationEvent.create({
+              tenantId,
+              deviceId: req.device!.id,
+              studentId: ev.studentId,
+              examId: ev.examId,
+              courseId: ev.courseId,
+              academicSessionId: ev.academicSessionId,
+              academicYear: ev.academicYear,
+              semester: ev.semester,
+              result: ev.result,
+              matchScore: ev.matchScore,
+              capturedAt,
+              syncedAt: new Date(),
+            });
+            ids.push(row._id);
+          } catch (e: unknown) {
+            if ((e as { code?: number }).code === 11000) {
+              continue;
+            }
+            throw e;
+          }
         }
       }
       return { ok: true, ids };

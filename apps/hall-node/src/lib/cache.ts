@@ -6,12 +6,17 @@ export interface CachedExamPackage {
   examId: string;
   title: string;
   tenantId: string;
+  courseId: string | null;
+  academicYear: string | null;
+  semester: number | null;
   students: Array<{
     studentId: string;
     matricNo: string;
     fullName: string;
     photoUrl: string | null;
     hallLabel: string | null;
+    /** False if exam has course/year/semester and student is not registered for that course offering. */
+    eligibleForExam: boolean;
     enrollments: Array<{
       fingerCode: string;
       templateEncBase64: string;

@@ -5,6 +5,9 @@ import { dataDir } from "./crypto.js";
 export interface PendingEvent {
   studentId: string;
   examId?: string;
+  courseId?: string;
+  academicYear?: string;
+  semester?: number;
   result: string;
   matchScore?: number;
   capturedAt: string;

@@ -121,6 +121,15 @@ app.post("/api/verify/local", async (req, res) => {
   if (body.examId && body.examId !== cache.examId) {
     return res.status(400).json({ error: "examId does not match cached package" });
   }
+  if (cache.courseId && cache.academicYear != null && cache.semester != null && !st.eligibleForExam) {
+    return res.json({
+      result: "not_registered_for_course",
+      matchScore: null,
+      courseId: cache.courseId,
+      academicYear: cache.academicYear,
+      semester: cache.semester,
+    });
+  }
 
   const probe = await extractTemplate({
     imageBase64: body.imageBase64,
@@ -142,6 +151,9 @@ app.post("/api/verify/local", async (req, res) => {
   appendPending({
     studentId: st.studentId,
     examId: cache.examId,
+    courseId: cache.courseId ?? undefined,
+    academicYear: cache.academicYear ?? undefined,
+    semester: cache.semester ?? undefined,
     result,
     matchScore: best,
     capturedAt: new Date().toISOString(),

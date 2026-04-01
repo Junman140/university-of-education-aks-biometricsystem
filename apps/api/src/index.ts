@@ -13,6 +13,11 @@ import { examRoutes } from "./routes/exams.js";
 import { verifyRoutes } from "./routes/verify.js";
 import { syncRoutes } from "./routes/sync.js";
 import { reportRoutes } from "./routes/reports.js";
+import { courseRoutes } from "./routes/courses.js";
+import { courseRegistrationRoutes } from "./routes/course-registrations.js";
+import { facultyRoutes } from "./routes/faculties.js";
+import { departmentRoutes } from "./routes/departments.js";
+import { academicSessionRoutes } from "./routes/academic-sessions.js";
 
 await connectDb();
 
@@ -39,6 +44,11 @@ await app.register(examRoutes);
 await app.register(verifyRoutes);
 await app.register(syncRoutes);
 await app.register(reportRoutes);
+await app.register(courseRoutes);
+await app.register(courseRegistrationRoutes);
+await app.register(facultyRoutes);
+await app.register(departmentRoutes);
+await app.register(academicSessionRoutes);
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";

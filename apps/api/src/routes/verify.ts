@@ -1,9 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Role } from "../models/roles.js";
-import type { BiometricEnrollmentLean, ExamRosterEntryLean, StudentLean } from "../models/lean.js";
+import type {
+  BiometricEnrollmentLean,
+  ExamLean,
+  ExamRosterEntryLean,
+  StudentLean,
+  VerificationEventLean,
+} from "../models/lean.js";
 import {
   BiometricEnrollment,
+  CourseRegistration,
+  Exam,
   ExamRosterEntry,
   Student,
   VerificationEvent,
@@ -13,10 +21,15 @@ import { resolveTenantId, type JwtUser } from "../lib/tenantScope.js";
 import { decryptTemplate } from "../lib/crypto.js";
 import { extractTemplate, isMatchingUnreachable, matchTemplates, matchingServiceUrl } from "../lib/matchingClient.js";
 import { authenticateDevice } from "../lib/deviceAuth.js";
+import { resolveAcademicYearLabel } from "../lib/resolveAcademicYear.js";
 
 const VerifyBody = z.object({
   matricNo: z.string().min(1),
   examId: z.string().optional(),
+  /** If set, must equal the exam's course (tag for auditing). */
+  courseId: z.string().optional(),
+  /** If set, must equal the exam's academic session (when exam uses sessions). */
+  academicSessionId: z.string().optional(),
   imageBase64: z.string().min(1),
   width: z.coerce.number().int().positive(),
   height: z.coerce.number().int().positive(),
@@ -34,19 +47,101 @@ async function runVerify(args: {
   tenantId: string;
   matricNo: string;
   examId?: string;
+  courseId?: string;
   deviceId?: string;
   body: z.infer<typeof VerifyBody>;
 }) {
-  const { tenantId, matricNo, examId, deviceId, body } = args;
+  const { tenantId, matricNo, examId, courseId: courseTag, deviceId, body } = args;
+  const sessionTag = body.academicSessionId;
   const student = await Student.findOne({ tenantId, matricNo }).lean<StudentLean | null>();
   if (!student) {
     return { result: "no_student", matchScore: null as number | null, student: null };
   }
 
+  let exam: ExamLean | null = null;
+  let resolvedSessionYear: string | null = null;
   if (examId) {
+    exam = await Exam.findOne({ _id: examId, tenantId }).lean<ExamLean | null>();
+    if (!exam) {
+      return {
+        result: "exam_not_found",
+        matchScore: null as number | null,
+        student: { id: student._id, matricNo: student.matricNo },
+      };
+    }
+    const sessionYear = await resolveAcademicYearLabel(tenantId, exam.academicSessionId, exam.academicYear);
+    resolvedSessionYear = sessionYear;
+    if (!exam.courseId || !sessionYear || exam.semester == null) {
+      return {
+        result: "exam_not_configured",
+        matchScore: null as number | null,
+        student: { id: student._id, matricNo: student.matricNo },
+        detail: "Exam must have courseId, academic year (or session), and semester",
+      };
+    }
+    if (sessionTag && exam.academicSessionId && sessionTag !== exam.academicSessionId) {
+      return {
+        result: "session_mismatch",
+        matchScore: null as number | null,
+        student: { id: student._id, matricNo: student.matricNo },
+        expectedAcademicSessionId: exam.academicSessionId,
+      };
+    }
+    if (courseTag && courseTag !== exam.courseId) {
+      return {
+        result: "course_mismatch",
+        matchScore: null as number | null,
+        student: { id: student._id, matricNo: student.matricNo },
+        expectedCourseId: exam.courseId,
+      };
+    }
+
+    const priorMatch = await VerificationEvent.findOne({
+      tenantId,
+      studentId: student._id,
+      examId,
+      result: "match",
+    }).lean<VerificationEventLean | null>();
+    if (priorMatch) {
+      return {
+        result: "already_verified",
+        matchScore: priorMatch.matchScore ?? null,
+        student: {
+          id: student._id,
+          matricNo: student.matricNo,
+          fullName: student.fullName,
+          photoUrl: student.photoUrl,
+        },
+        examId,
+        courseId: exam.courseId,
+        academicYear: sessionYear,
+        academicSessionId: exam.academicSessionId,
+        semester: exam.semester,
+      };
+    }
+
     const onRoster = await ExamRosterEntry.findOne({ examId, studentId: student._id }).lean<ExamRosterEntryLean | null>();
     if (!onRoster) {
       return { result: "not_on_roster", matchScore: null, student: { id: student._id, matricNo } };
+    }
+
+    const registration = await CourseRegistration.findOne({
+      tenantId,
+      studentId: student._id,
+      courseId: exam.courseId,
+      academicYear: sessionYear,
+      semester: exam.semester,
+    }).lean();
+    if (!registration) {
+      return {
+        result: "not_registered_for_course",
+        matchScore: null as number | null,
+        student: { id: student._id, matricNo: student.matricNo },
+        courseId: exam.courseId,
+        academicYear: sessionYear,
+        academicSessionId: exam.academicSessionId,
+        semester: exam.semester,
+      };
     }
   }
 
@@ -92,15 +187,41 @@ async function runVerify(args: {
     if (m.matched) matched = true;
   }
 
+  const eventMeta = {
+    tenantId,
+    deviceId,
+    studentId: student._id,
+    examId,
+    courseId: exam?.courseId,
+    academicSessionId: exam?.academicSessionId,
+    academicYear: resolvedSessionYear ?? exam?.academicYear ?? undefined,
+    semester: exam?.semester,
+  };
+
   if (matched) {
-    await VerificationEvent.create({
-      tenantId,
-      deviceId,
-      studentId: student._id,
-      examId,
-      result: "match",
-      matchScore: best,
-    });
+    try {
+      await VerificationEvent.create({
+        ...eventMeta,
+        result: "match",
+        matchScore: best,
+      });
+    } catch (e: unknown) {
+      if ((e as { code?: number }).code === 11000) {
+        return {
+          result: "already_verified",
+          matchScore: best,
+          student: {
+            id: student._id,
+            matricNo: student.matricNo,
+            fullName: student.fullName,
+            photoUrl: student.photoUrl,
+          },
+          examId,
+          courseId: exam?.courseId,
+        };
+      }
+      throw e;
+    }
     return {
       result: "match",
       matchScore: best,
@@ -110,14 +231,16 @@ async function runVerify(args: {
         fullName: student.fullName,
         photoUrl: student.photoUrl,
       },
+      examId,
+      courseId: exam?.courseId,
+      academicYear: resolvedSessionYear ?? exam?.academicYear,
+      academicSessionId: exam?.academicSessionId,
+      semester: exam?.semester,
     };
   }
 
   await VerificationEvent.create({
-    tenantId,
-    deviceId,
-    studentId: student._id,
-    examId,
+    ...eventMeta,
     result: "no_match",
     matchScore: best,
   });
@@ -131,6 +254,11 @@ async function runVerify(args: {
       fullName: student.fullName,
       photoUrl: student.photoUrl,
     },
+    examId,
+    courseId: exam?.courseId,
+    academicYear: resolvedSessionYear ?? exam?.academicYear,
+    academicSessionId: exam?.academicSessionId,
+    semester: exam?.semester,
   };
 }
 
@@ -158,6 +286,7 @@ export async function verifyRoutes(app: FastifyInstance) {
           tenantId: tid,
           matricNo: body.matricNo,
           examId: body.examId,
+          courseId: body.courseId,
           body,
         });
       } catch (e: unknown) {
@@ -182,6 +311,7 @@ export async function verifyRoutes(app: FastifyInstance) {
           tenantId: req.device!.tenantId,
           matricNo: body.matricNo,
           examId: body.examId,
+          courseId: body.courseId,
           deviceId: req.device!.id,
           body,
         });

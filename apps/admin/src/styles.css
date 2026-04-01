@@ -62,3 +62,18 @@ nav {
 .error {
   color: #fecaca;
 }
+h1 {
+  font-size: 1.35rem;
+  margin: 0 0 0.75rem;
+}
+h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.5rem;
+}
+table th,
+table td {
+  padding: 0.35rem 0.5rem;
+}
+table tbody tr:hover {
+  background: #1e293b;
+}

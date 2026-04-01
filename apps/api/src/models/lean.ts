@@ -22,9 +22,33 @@ export interface StudentLean {
   tenantId: string;
   matricNo: string;
   fullName: string;
+  facultyId?: string | null;
+  departmentId?: string | null;
+  faculty?: string | null;
   department?: string | null;
   level?: string | null;
   photoUrl?: string | null;
+}
+
+export interface CourseLean {
+  _id: string;
+  tenantId: string;
+  code: string;
+  title: string;
+  facultyId?: string | null;
+  departmentId?: string | null;
+  faculty?: string | null;
+  department?: string | null;
+}
+
+export interface CourseRegistrationLean {
+  _id: string;
+  tenantId: string;
+  studentId: string;
+  courseId: string;
+  academicSessionId?: string | null;
+  academicYear: string;
+  semester: number;
 }
 
 export interface BiometricEnrollmentLean {
@@ -41,6 +65,10 @@ export interface ExamLean {
   _id: string;
   tenantId: string;
   title: string;
+  courseId?: string | null;
+  academicSessionId?: string | null;
+  academicYear?: string | null;
+  semester?: number | null;
   startsAt?: Date | null;
   endsAt?: Date | null;
 }
@@ -54,6 +82,10 @@ export interface ExamRosterEntryLean {
 
 export interface VerificationEventLean {
   _id: string;
+  matchScore?: number | null;
+  studentId?: string;
+  examId?: string | null;
+  result?: string;
 }
 
 /** Fields needed for reports / CSV joins. */
@@ -62,6 +94,11 @@ export interface VerificationEventListLean {
   tenantId: string;
   studentId: string;
   deviceId?: string | null;
+  examId?: string | null;
+  courseId?: string | null;
+  academicSessionId?: string | null;
+  academicYear?: string | null;
+  semester?: number | null;
   capturedAt: Date;
   result: string;
   matchScore?: number | null;

@@ -92,6 +92,11 @@ function needsTenantQuery(path: string): boolean {
     path.startsWith("/students") ||
     path.startsWith("/devices") ||
     path.startsWith("/exams") ||
+    path.startsWith("/courses") ||
+    path.startsWith("/course-registrations") ||
+    path.startsWith("/faculties") ||
+    path.startsWith("/departments") ||
+    path.startsWith("/academic-sessions") ||
     path.startsWith("/reports") ||
     path.startsWith("/verify")
   );

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+apps/hall-node/data/
+apps/api/.env
+.DS_Store
+target/
+*.jar

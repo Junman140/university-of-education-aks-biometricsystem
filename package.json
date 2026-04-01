@@ -1,0 +1,17 @@
+{
+  "name": "university-of-education-aks-biometricsystem",
+  "private": true,
+  "packageManager": "pnpm@9.14.2",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "db:seed": "pnpm --filter @bio/api run seed",
+    "dev": "concurrently -n api,admin,match -c cyan,magenta,yellow \"pnpm dev:api\" \"pnpm dev:admin\" \"node scripts/start-matching.mjs\"",
+    "dev:web": "concurrently -n api,admin -c cyan,magenta \"pnpm dev:api\" \"pnpm dev:admin\"",
+    "dev:api": "pnpm --filter @bio/api dev",
+    "dev:admin": "pnpm --filter @bio/admin dev",
+    "dev:hall": "pnpm --filter @bio/hall-node dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

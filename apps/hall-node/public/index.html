@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hall verification</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      main {
+        max-width: 520px;
+        margin: 2rem auto;
+        padding: 1.5rem;
+        background: #1e293b;
+        border-radius: 12px;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      label {
+        display: block;
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+        color: #94a3b8;
+      }
+      input,
+      textarea {
+        width: 100%;
+        margin-top: 0.25rem;
+        padding: 0.5rem;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        background: #0f172a;
+        color: #f8fafc;
+      }
+      button {
+        margin-top: 1rem;
+        padding: 0.6rem 1rem;
+        border: none;
+        border-radius: 8px;
+        background: #22c55e;
+        color: #052e16;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .out {
+        margin-top: 1rem;
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+      }
+      .bad {
+        color: #fca5a5;
+      }
+      .good {
+        color: #86efac;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Exam hall verification (offline cache)</h1>
+      <p style="font-size: 0.85rem; color: #94a3b8">
+        SecuGen Hamster Pro: set <code>CAPTURE_BRIDGE_URL</code> to your local SDK HTTP service, then use
+        <strong>Capture from device</strong>. Otherwise paste base64 PNG. Sync must be run on this node.
+      </p>
+      <button type="button" id="cap" class="secondary" style="background: #334155; color: #e2e8f0">
+        Capture from device (bridge)
+      </button>
+      <label>Matric number</label>
+      <input id="matric" placeholder="e.g. 2024/12345" />
+      <label>Base64 image (PNG)</label>
+      <textarea id="img" rows="6" placeholder="Paste base64..."></textarea>
+      <label>Width / Height</label>
+      <div style="display: flex; gap: 0.5rem">
+        <input id="w" type="number" value="256" />
+        <input id="h" type="number" value="256" />
+      </div>
+      <label>DPI (SecuGen often 500)</label>
+      <input id="dpi" type="number" value="500" min="200" max="2000" />
+      <button type="button" id="go">Verify locally</button>
+      <div id="out" class="out"></div>
+    </main>
+    <script>
+      document.getElementById("cap").onclick = async () => {
+        const out = document.getElementById("out");
+        out.className = "out";
+        out.textContent = "Capturing…";
+        try {
+          const r = await fetch("/api/capture/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          const j = await r.json();
+          if (!r.ok) {
+            out.className = "out bad";
+            out.textContent = JSON.stringify(j, null, 2);
+            return;
+          }
+          document.getElementById("img").value = j.imageBase64;
+          document.getElementById("w").value = j.width;
+          document.getElementById("h").value = j.height;
+          if (j.dpi) document.getElementById("dpi").value = j.dpi;
+          out.className = "out good";
+          out.textContent = "Filled from bridge (vendor: " + (j.vendor || "?") + ", " + j.width + "×" + j.height + ", dpi " + (j.dpi || "?") + ").";
+        } catch (e) {
+          out.className = "out bad";
+          out.textContent = String(e);
+        }
+      };
+      document.getElementById("go").onclick = async () => {
+        const matricNo = document.getElementById("matric").value.trim();
+        const imageBase64 = document.getElementById("img").value.trim();
+        const width = +document.getElementById("w").value;
+        const height = +document.getElementById("h").value;
+        const dpi = +document.getElementById("dpi").value || 500;
+        const out = document.getElementById("out");
+        out.textContent = "Working...";
+        try {
+          const r = await fetch("/api/verify/local", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              matricNo,
+              imageBase64,
+              width,
+              height,
+              dpi,
+              format: "png",
+            }),
+          });
+          const j = await r.json();
+          out.className = "out " + (j.result === "match" ? "good" : "bad");
+          out.textContent = JSON.stringify(j, null, 2);
+        } catch (e) {
+          out.className = "out bad";
+          out.textContent = String(e);
+        }
+      };
+    </script>
+  </body>
+</html>

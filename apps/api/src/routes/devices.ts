@@ -49,6 +49,25 @@ export async function deviceRoutes(app: FastifyInstance) {
     }
   );
 
+  app.delete(
+    "/devices/:id",
+    {
+      onRequest: [
+        app.authenticate,
+        requireRole([Role.SUPER_ADMIN, Role.TENANT_ADMIN]),
+      ],
+    },
+    async (req, reply) => {
+      const user = req.user as JwtUser;
+      const tid = resolveTenantId(req, reply, user);
+      if (!tid) return;
+      const id = (req.params as { id: string }).id;
+      const d = await Device.findOneAndDelete({ _id: id, tenantId: tid });
+      if (!d) return reply.code(404).send({ error: "Device not found" });
+      return { ok: true };
+    }
+  );
+
   app.get(
     "/devices",
     {

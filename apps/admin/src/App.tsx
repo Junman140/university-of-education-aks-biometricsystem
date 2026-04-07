@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Layout from "./pages/Layout";
 import SettingsLayout from "./pages/SettingsLayout";
 import Students from "./pages/Students";
+import StudentAdd from "./pages/StudentAdd";
 import StudentEdit from "./pages/StudentEdit";
 import Enroll from "./pages/Enroll";
 import Exams from "./pages/Exams";
@@ -31,6 +32,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/students" replace />} />
         <Route path="students" element={<Students />} />
+        <Route path="registration" element={<StudentAdd />} />
         <Route path="students/:id/edit" element={<StudentEdit />} />
         <Route path="enroll/:studentId" element={<Enroll />} />
         <Route path="exams" element={<Exams />} />

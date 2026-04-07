@@ -76,6 +76,7 @@ export async function enrollmentRoutes(app: FastifyInstance) {
         throw e;
       }
       const raw = Buffer.from(extracted.template_base64, "base64");
+      console.log(`[Enroll] Extracted template length: ${raw.length} bytes. Format: ${body.format}`);
       const enc = encryptTemplate(raw);
 
       const row = await BiometricEnrollment.findOneAndUpdate(
@@ -109,11 +110,43 @@ export async function enrollmentRoutes(app: FastifyInstance) {
       });
 
       return {
-        id: row._id,
+        id: row._id.toString(),
         fingerCode: row.fingerCode,
         qualityScore: q.score,
         templateVersion: row.templateVersion,
       };
+    }
+  );
+
+  app.delete(
+    "/students/:studentId/enrollments",
+    {
+      onRequest: [
+        app.authenticate,
+        requireRole([Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.ENROLLER]),
+      ],
+    },
+    async (req, reply) => {
+      const user = req.user as JwtUser;
+      const tid = resolveTenantId(req, reply, user);
+      if (!tid) return;
+      const studentId = (req.params as { studentId: string }).studentId;
+
+      const student = await Student.findOne({ _id: studentId, tenantId: tid }).lean();
+      if (!student) return reply.code(404).send({ error: "Student not found" });
+
+      const res = await BiometricEnrollment.deleteMany({ studentId, tenantId: tid });
+
+      await AuditLog.create({
+        tenantId: tid,
+        actorId: user.sub,
+        action: "enrollment.delete",
+        entityType: "BiometricEnrollment",
+        entityId: studentId,
+        meta: { deletedCount: res.deletedCount },
+      });
+
+      return { ok: true, deletedCount: res.deletedCount };
     }
   );
 }

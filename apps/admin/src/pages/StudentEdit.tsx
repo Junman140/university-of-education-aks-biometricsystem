@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 
@@ -143,7 +143,7 @@ export default function StudentEdit() {
             {err && <p className="error">{err}</p>}
             <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
               <button type="submit">Save</button>
-              <button type="button" className="secondary" onClick={() => nav("/enrollment/students")}>
+              <button type="button" className="secondary" onClick={() => nav("/students")}>
                 Cancel
               </button>
             </div>

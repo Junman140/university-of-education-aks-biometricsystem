@@ -121,9 +121,11 @@ export function apiUrl(path: string): string {
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(opts.headers as Record<string, string>),
   };
+  if (opts.body && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${base}${withTenantQuery(path)}`, { ...opts, headers });
   if (!res.ok) {

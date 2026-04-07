@@ -35,13 +35,62 @@ const PatchExam = z.object({
 const RosterBulk = z.object({
   entries: z.array(
     z.object({
-      studentId: z.string(),
+      studentId: z.string().optional(),
+      matricNo: z.string().optional(),
       hallLabel: z.string().optional(),
     })
   ),
 });
 
+const RosterDepartment = z.object({
+  departmentId: z.string().min(1),
+  hallLabel: z.string().optional(),
+});
+
 export async function examRoutes(app: FastifyInstance) {
+  app.post(
+    "/exams/:examId/roster/bulk-department",
+    {
+      onRequest: [
+        app.authenticate,
+        requireRole([Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.ENROLLER]),
+      ],
+    },
+    async (req, reply) => {
+      const user = req.user as JwtUser;
+      const tid = resolveTenantId(req, reply, user);
+      if (!tid) return;
+      const examId = (req.params as { examId: string }).examId;
+      const body = RosterDepartment.parse(req.body);
+      
+      const exam = await Exam.findOne({ _id: examId, tenantId: tid }).lean();
+      if (!exam) return reply.code(404).send({ error: "Exam not found" });
+
+      console.log(`[Roster] Bulk add by department: ${body.departmentId} for exam: ${examId}`);
+
+      const students = await Student.find({ departmentId: body.departmentId, tenantId: tid }).lean();
+      if (students.length === 0) {
+        console.warn(`[Roster] No students found in department ${body.departmentId}`);
+        return { ok: true, count: 0, total: 0 };
+      }
+
+      console.log(`[Roster] Found ${students.length} students in department. Matric numbers: ${students.map(s => s.matricNo).join(', ')}`);
+
+      const ops = students.map((s) => ({
+        updateOne: {
+          filter: { examId, studentId: s._id },
+          update: { $set: { examId, studentId: s._id, hallLabel: body.hallLabel } },
+          upsert: true,
+        }
+      }));
+
+      const bulkRes = await ExamRosterEntry.bulkWrite(ops);
+      console.log(`[Roster] Bulk write finished. Upserted: ${bulkRes.upsertedCount}, Modified: ${bulkRes.modifiedCount}`);
+
+      return { ok: true, count: students.length, total: students.length };
+    }
+  );
+
   app.post(
     "/exams",
     {
@@ -113,22 +162,47 @@ export async function examRoutes(app: FastifyInstance) {
       const exam = await Exam.findOne({ _id: examId, tenantId: tid }).lean();
       if (!exam) return reply.code(404).send({ error: "Exam not found" });
 
-      for (const e of body.entries) {
-        const st = await Student.findOne({ _id: e.studentId, tenantId: tid }).lean();
-        if (!st) return reply.code(400).send({ error: `Unknown student ${e.studentId}` });
-      }
+      const results = await Promise.all(
+        body.entries.map(async (e) => {
+          const filter: any = { tenantId: tid };
+          if (e.studentId) filter._id = e.studentId;
+          else if (e.matricNo) filter.matricNo = e.matricNo;
+          else return null;
 
-      await Promise.all(
-        body.entries.map((e) =>
-          ExamRosterEntry.findOneAndUpdate(
-            { examId, studentId: e.studentId },
-            { $set: { examId, studentId: e.studentId, hallLabel: e.hallLabel } },
+          const st = await Student.findOne(filter).lean();
+          if (!st) return null;
+
+          return ExamRosterEntry.findOneAndUpdate(
+            { examId, studentId: st._id },
+            { $set: { examId, studentId: st._id, hallLabel: e.hallLabel } },
             { upsert: true, new: true }
-          )
-        )
+          );
+        })
       );
 
-      return { ok: true, count: body.entries.length };
+      const successful = results.filter(Boolean).length;
+      return { ok: true, count: successful, total: body.entries.length };
+    }
+  );
+
+  app.delete(
+    "/exams/:examId",
+    {
+      onRequest: [
+        app.authenticate,
+        requireRole([Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.ENROLLER]),
+      ],
+    },
+    async (req, reply) => {
+      const user = req.user as JwtUser;
+      const tid = resolveTenantId(req, reply, user);
+      if (!tid) return;
+      const examId = (req.params as { examId: string }).examId;
+      const exam = await Exam.findOneAndDelete({ _id: examId, tenantId: tid });
+      if (!exam) return reply.code(404).send({ error: "Exam not found" });
+      // Delete roster entries too
+      await ExamRosterEntry.deleteMany({ examId });
+      return { ok: true };
     }
   );
 

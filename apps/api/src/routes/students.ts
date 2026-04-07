@@ -81,7 +81,12 @@ export async function studentRoutes(app: FastifyInstance) {
       const user = req.user as JwtUser;
       const tid = resolveTenantId(req, reply, user);
       if (!tid) return;
-      const q = (req.query as { q?: string })?.q?.trim();
+      const query = req.query as { q?: string; page?: string; limit?: string };
+      const q = query.q?.trim();
+      const page = Math.max(1, parseInt(query.page || "1", 10));
+      const limit = Math.min(200, Math.max(1, parseInt(query.limit || "50", 10)));
+      const skip = (page - 1) * limit;
+
       const filter: Record<string, unknown> = { tenantId: tid };
       if (q) {
         filter.$or = [
@@ -89,8 +94,27 @@ export async function studentRoutes(app: FastifyInstance) {
           { fullName: { $regex: q, $options: "i" } },
         ];
       }
-      const rows = await Student.find(filter).sort({ matricNo: 1 }).limit(200).lean();
-      return withIds(rows as { _id: string }[]);
+      
+      const total = await Student.countDocuments(filter);
+      const rows = await Student.find(filter).sort({ matricNo: 1 }).skip(skip).limit(limit).lean<StudentLean[]>();
+      
+      const data = await Promise.all(rows.map(async (s) => {
+        const enrollmentCount = await BiometricEnrollment.countDocuments({ studentId: s._id });
+        return {
+          ...withId(s),
+          isEnrolled: enrollmentCount > 0
+        };
+      }));
+
+      return {
+        data,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit)
+        }
+      };
     }
   );
 

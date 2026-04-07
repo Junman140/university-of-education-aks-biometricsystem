@@ -53,7 +53,8 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
   return (
     <main>
       <nav style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem", borderBottom: "1px solid #1f2937", paddingBottom: "0.5rem" }}>
-        <Tab prefix="/students" to="/students">Students</Tab>
+        <Tab prefix="/students" to="/students">Directory</Tab>
+        <Tab prefix="/registration" to="/registration">Registration</Tab>
         <Tab prefix="/exams" to="/exams">Exams</Tab>
         <Tab prefix="/verify" to="/verify">Verify</Tab>
         <Tab prefix="/settings" to="/settings">Settings</Tab>

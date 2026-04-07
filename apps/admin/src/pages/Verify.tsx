@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { captureFromBridge, pingBridge } from "../lib/capture";
 
 type Exam = { id: string; title: string; courseId: string | null; academicYear: string | null; semester: number | null };
 
@@ -69,9 +70,10 @@ const RESULT_LABELS: Record<string, { label: string; color: string; bg: string }
 
 export default function Verify() {
   const [exams, setExams] = useState<Exam[]>([]);
-  const [matricNo, setMatric] = useState("");
+  // const [matricNo, setMatric] = useState("");
   const [examId, setExamId] = useState("");
   const [imageBase64, setImg] = useState("");
+  const [imgFormat, setImgFormat] = useState<"png" | "raw_gray8">("png");
   const [width, setW] = useState(0);
   const [height, setH] = useState(0);
   const [dpi, setDpi] = useState(500);
@@ -80,6 +82,15 @@ export default function Verify() {
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [recent, setRecent] = useState<RecentEvent[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [bridgeUrl, setBridgeUrl] = useState(() => localStorage.getItem("captureBridgeUrl") || "http://127.0.0.1:5055");
+  const [bridgeStatus, setBridgeStatus] = useState<"checking" | "ok" | "error" | null>(null);
+  const [bridgeScanner, setBridgeScanner] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
+
+  // Student Search is no longer used for verification (it's 1-to-N now)
+  // const [searchQ, setSearchQ] = useState("");
+  // const [searchResults, setSearchResults] = useState<{ id: string; matricNo: string; fullName: string }[]>([]);
+  // const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     api<Exam[]>("/exams").then(setExams).catch(() => {});
@@ -92,20 +103,56 @@ export default function Verify() {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
   }, [previewUrl]);
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function checkBridge() {
+    setBridgeStatus("checking");
+    setBridgeScanner(null);
+    localStorage.setItem("captureBridgeUrl", bridgeUrl);
+    const info = await pingBridge(bridgeUrl);
+    if (info) {
+      setBridgeStatus("ok");
+      setBridgeScanner(`${info.vendor} ${info.scanner}`);
+    } else {
+      setBridgeStatus("error");
+    }
+  }
+
+  async function captureLive() {
     setErr(null);
     setResult(null);
+    setCapturing(true);
+    localStorage.setItem("captureBridgeUrl", bridgeUrl);
     try {
-      const { base64, width: w, height: h } = await readPng(file);
-      setImg(base64);
-      setW(w);
-      setH(h);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreview(URL.createObjectURL(file));
-    } catch (er: unknown) {
-      setErr(er instanceof Error ? er.message : "Invalid file");
+      const res = await captureFromBridge(bridgeUrl);
+      setImg(res.base64);
+      setImgFormat(res.format as "png" | "raw_gray8");
+      setW(res.width);
+      setH(res.height);
+      setDpi(res.dpi);
+      
+      if (res.format === "raw_gray8") {
+        const canvas = document.createElement("canvas");
+        canvas.width = res.width;
+        canvas.height = res.height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          const imgData = ctx.createImageData(res.width, res.height);
+          const rawBytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
+          for (let i = 0; i < rawBytes.length; i++) {
+            imgData.data[i * 4] = rawBytes[i];     // R
+            imgData.data[i * 4 + 1] = rawBytes[i]; // G
+            imgData.data[i * 4 + 2] = rawBytes[i]; // B
+            imgData.data[i * 4 + 3] = 255;         // A
+          }
+          ctx.putImageData(imgData, 0, 0);
+          setPreview(canvas.toDataURL("image/png"));
+        }
+      } else {
+        setPreview(`data:image/png;base64,${res.base64}`);
+      }
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Capture failed. Is the bridge running?");
+    } finally {
+      setCapturing(false);
     }
   }
 
@@ -114,21 +161,21 @@ export default function Verify() {
     setErr(null);
     setResult(null);
     if (!imageBase64 || !width || !height) {
-      setErr("Upload a fingerprint image first.");
+      setErr("Please capture a fingerprint first.");
       return;
     }
     setLoading(true);
     try {
       const body: Record<string, unknown> = {
-        matricNo,
         imageBase64,
         width,
         height,
         dpi,
-        format: "png",
+        format: imgFormat,
       };
       if (examId) body.examId = examId;
-      const res = await api<VerifyResult>("/verify/one-to-one", {
+      // We no longer send matricNo, we use /verify/identify
+      const res = await api<VerifyResult>("/verify/identify", {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -154,23 +201,14 @@ export default function Verify() {
     <>
       <h1>Verify student identity</h1>
       <p style={{ fontSize: "0.9rem", color: "#94a3b8", maxWidth: 640 }}>
-        Match a student's live fingerprint against their enrolled biometric templates. Optionally tie the verification to an <strong>exam</strong> for roster and course registration checks.
+        Capture a fingerprint to identify the student. Optionally tie the verification to an <strong>exam</strong> for roster and course registration checks.
       </p>
 
       <div className="card">
         <form onSubmit={verify}>
-          <label>Matric number</label>
-          <input
-            value={matricNo}
-            onChange={(e) => setMatric(e.target.value)}
-            required
-            placeholder="e.g. UED/2020/001"
-            autoFocus
-          />
-
-          <label>Exam (optional — enables roster + course check)</label>
+          <label>Exam (optional — limits search to roster + course check)</label>
           <select value={examId} onChange={(e) => setExamId(e.target.value)}>
-            <option value="">— No exam context —</option>
+            <option value="">— No exam context (Search all students) —</option>
             {exams.map((x) => (
               <option key={x.id} value={x.id}>
                 {x.title} {x.academicYear ? `(${x.academicYear} sem ${x.semester ?? "?"})` : ""}
@@ -178,23 +216,47 @@ export default function Verify() {
             ))}
           </select>
 
-          <label>Fingerprint image (PNG)</label>
-          <input type="file" accept="image/png" onChange={onFile} />
+          <div style={{ background: "#0f172a", padding: "1rem", borderRadius: 8, marginTop: "1rem", border: "1px solid #334155" }}>
+            <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem" }}>Capture Fingerprint</h3>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                value={bridgeUrl}
+                onChange={(e) => { setBridgeUrl(e.target.value); setBridgeStatus(null); }}
+                placeholder="http://127.0.0.1:5055"
+                style={{ maxWidth: 220 }}
+              />
+              <button type="button" className="secondary" onClick={checkBridge} disabled={bridgeStatus === "checking"}>
+                {bridgeStatus === "checking" ? "Checking…" : "Test connection"}
+              </button>
+              <button type="button" onClick={captureLive} disabled={capturing}>
+                {capturing ? "Capturing…" : "Capture live"}
+              </button>
+              {bridgeStatus === "ok" && <span style={{ color: "#4ade80", fontSize: "0.85rem", marginLeft: 8 }}>✓ Connected: {bridgeScanner}</span>}
+              {bridgeStatus === "error" && <span style={{ color: "#f87171", fontSize: "0.85rem", marginLeft: 8 }}>✗ Cannot connect</span>}
+            </div>
+          </div>
+
           {previewUrl && (
-            <div style={{ marginTop: "0.5rem" }}>
-              <img src={previewUrl} alt="Fingerprint" style={{ maxWidth: 180, maxHeight: 180, border: "1px solid #334155", borderRadius: 8 }} />
-              <p style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.25rem" }}>{width} × {height}px</p>
+            <div style={{ marginTop: "1rem", textAlign: "center" }}>
+              <img src={previewUrl} alt="Fingerprint" style={{ maxWidth: 220, maxHeight: 220, border: "2px solid #22c55e", borderRadius: 8, display: "block", margin: "0 auto" }} />
+              <p style={{ fontSize: "0.85rem", color: "#4ade80", marginTop: "0.5rem" }}>Fingerprint captured successfully ({width} × {height}px)</p>
+              <button type="button" className="secondary" style={{ marginTop: "0.5rem" }} onClick={() => {
+                setPreview(null);
+                setImg("");
+                setW(0);
+                setH(0);
+                setResult(null);
+              }}>
+                Discard & Retry
+              </button>
             </div>
           )}
-
-          <label>DPI (must match scanner; default 500)</label>
-          <input type="number" min={100} max={2000} value={dpi} onChange={(e) => setDpi(+e.target.value)} />
 
           {err && <p className="error">{err}</p>}
 
           <div style={{ marginTop: "1rem" }}>
-            <button type="submit" disabled={loading || !imageBase64}>
-              {loading ? "Verifying…" : "Verify identity"}
+            <button type="submit" disabled={loading || !imageBase64} style={{ width: "100%", padding: "0.75rem", fontSize: "1.05rem", background: imageBase64 ? "#3b82f6" : "#475569" }}>
+              {loading ? "Identifying…" : "Identify Student"}
             </button>
           </div>
         </form>
@@ -216,6 +278,11 @@ export default function Verify() {
             }}>
               {badge.label}
             </span>
+            {result.detail && (
+              <span style={{ fontSize: "0.85rem", color: "#f87171", marginLeft: "0.5rem" }}>
+                ({result.detail})
+              </span>
+            )}
             {result.matchScore != null && (
               <span style={{ fontSize: "0.9rem", color: "#e2e8f0" }}>
                 Score: <strong>{result.matchScore.toFixed(1)}</strong>

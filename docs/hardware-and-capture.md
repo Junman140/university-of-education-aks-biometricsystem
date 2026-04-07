@@ -23,7 +23,18 @@
 | `imageBase64` | PNG or raw bytes as base64 |
 
 Enrollment and verification flows send this payload to the API; the matching service consumes **decoded grayscale** for SourceAFIS.
+Hardware Integration (futronic_bridge.py)
+Since you are using Futronic hardware, browsers strictly cannot access proprietary USB devices directly. The standard way to handle this (which the app architecture was already designed for) is to run a local "Capture Bridge" in the background on the Windows PC that has the scanner plugged in.
 
+I have created a starter Python bridge for you at: services/capture-bridge/futronic_bridge.py
+
+You or your hardware engineer will just need to drop your Futronic SDK Python bindings (like ftrScanAPI.dll wrappers) into the capture_futronic_image_bytes() function in that script.
+
+To run the bridge on the enrollment PC:
+
+pip install flask flask-cors
+python services/capture-bridge/futronic_bridge.py
+As long as that is running, your Admin UI running in Chrome/Edge will seamlessly communicate with the Futronic hardware!
 ## SecuGen Hamster Pro — integration architecture
 
 1. **USB + SDK** live on a **Windows (or Linux) PC** next to the reader. The vendor SDK is **not** embedded in this monorepo (license and native binaries).

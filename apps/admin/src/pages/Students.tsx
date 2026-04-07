@@ -12,17 +12,15 @@ type Student = {
   departmentId?: string | null;
   faculty: string | null;
   department: string | null;
+  isEnrolled?: boolean;
 };
 
 export default function Students() {
   const [list, setList] = useState<Student[]>([]);
+  const [meta, setMeta] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
   const [faculties, setFaculties] = useState<Faculty[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [q, setQ] = useState("");
-  const [matric, setMatric] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [facultyId, setFacultyId] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   const facultyById = useMemo(() => {
@@ -37,31 +35,30 @@ export default function Students() {
     return m;
   }, [departments]);
 
-  const deptsForFaculty = useMemo(() => {
-    if (!facultyId) return departments;
-    return departments.filter((d) => d.facultyId === facultyId || d.facultyId == null);
-  }, [departments, facultyId]);
-
   const loadRefs = useCallback(async () => {
     const [f, d] = await Promise.all([api<Faculty[]>("/faculties"), api<Department[]>("/departments")]);
     setFaculties(f);
     setDepartments(d);
   }, []);
 
-  async function load() {
-    const qs = q ? `?q=${encodeURIComponent(q)}` : "";
-    const rows = await api<Student[]>(`/students${qs}`);
-    setList(rows);
+  async function load(page = meta.page) {
+    const params = new URLSearchParams();
+    if (q) params.append("q", q);
+    params.append("page", String(page));
+    params.append("limit", "10");
+
+    try {
+      const res = await api<{ data: Student[], meta: typeof meta }>(`/students?${params.toString()}`);
+      setList(res.data);
+      setMeta(res.meta);
+    } catch (e) {
+      setErr(String(e));
+    }
   }
 
   useEffect(() => {
-    Promise.all([loadRefs(), load()]).catch((e) => setErr(String(e)));
+    Promise.all([loadRefs(), load(1)]).catch((e) => setErr(String(e)));
   }, []);
-
-  function onFacultyChange(fid: string) {
-    setFacultyId(fid);
-    setDepartmentId("");
-  }
 
   function displayFaculty(s: Student) {
     if (s.facultyId && facultyById.has(s.facultyId)) return facultyById.get(s.facultyId);
@@ -73,97 +70,95 @@ export default function Students() {
     return s.department ?? "—";
   }
 
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
+  async function deleteBiometric(studentId: string) {
+    if (!confirm("Are you sure you want to delete this student's biometric data? They will need to re-enroll to be verified.")) return;
     try {
-      await api("/students", {
-        method: "POST",
-        body: JSON.stringify({
-          matricNo: matric,
-          fullName,
-          facultyId: facultyId || undefined,
-          departmentId: departmentId || undefined,
-        }),
-      });
-      setMatric("");
-      setFullName("");
-      setFacultyId("");
-      setDepartmentId("");
+      await api(`/students/${studentId}/enrollments`, { method: "DELETE" });
       await load();
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Error");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to delete biometric");
     }
   }
 
   return (
     <>
-      <h1>Students</h1>
+      <h1>Student Directory</h1>
       <div className="card">
-        <h2>Add student</h2>
-        <form onSubmit={create}>
-          <label>Matric</label>
-          <input value={matric} onChange={(e) => setMatric(e.target.value)} required />
-          <label>Full name</label>
-          <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
-          <label>Faculty</label>
-          <select value={facultyId} onChange={(e) => onFacultyChange(e.target.value)}>
-            <option value="">—</option>
-            {faculties.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <label>Department</label>
-          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-            <option value="">—</option>
-            {deptsForFaculty.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-          {err && <p className="error">{err}</p>}
-          <div style={{ marginTop: "0.75rem" }}>
-            <button type="submit">Create</button>
-          </div>
-        </form>
-      </div>
-      <div className="card">
-        <h2>Search</h2>
-        <input
-          placeholder="Filter..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onBlur={() => load().catch((e) => setErr(String(e)))}
-        />
-        <table style={{ width: "100%", marginTop: "1rem", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ textAlign: "left", borderBottom: "1px solid #334155" }}>
-              <th>Matric</th>
-              <th>Name</th>
-              <th>Faculty</th>
-              <th>Dept</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((s) => (
-              <tr key={s.id}>
-                <td>{s.matricNo}</td>
-                <td>{s.fullName}</td>
-                <td>{displayFaculty(s)}</td>
-                <td>{displayDept(s)}</td>
-                <td>
-                  <Link to={`/students/${s.id}/edit`}>Edit</Link>
-                  {" · "}
-                  <Link to={`/enroll/${s.id}`}>Enroll fingerprint</Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <input
+            placeholder="Search by Name or Matric No..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && load(1)}
+            style={{ flex: 1 }}
+          />
+          <button type="button" onClick={() => load(1)}>Search</button>
+        </div>
+        
+        {list.length > 0 ? (
+          <>
+            <table style={{ width: "100%", marginTop: "1rem", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "1px solid #334155" }}>
+                  <th>Matric</th>
+                  <th>Name</th>
+                  <th>Faculty</th>
+                  <th>Dept</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.matricNo}</td>
+                    <td>
+                      {s.fullName}
+                      {s.isEnrolled && <span style={{ marginLeft: "0.5rem", fontSize: "0.7rem", padding: "1px 4px", background: "#052e16", color: "#4ade80", borderRadius: 4, fontWeight: 700 }}>ENROLLED</span>}
+                    </td>
+                    <td>{displayFaculty(s)}</td>
+                    <td>{displayDept(s)}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        <Link to={`/students/${s.id}/edit`}>Edit</Link>
+                        {" · "}
+                        <Link to={`/enroll/${s.id}`}>{s.isEnrolled ? "Re-enroll" : "Enroll"}</Link>
+                        {s.isEnrolled && (
+                          <>
+                            {" · "}
+                            <button 
+                              type="button" 
+                              className="secondary" 
+                              style={{ padding: "1px 4px", fontSize: "0.75rem", color: "#f87171" }}
+                              onClick={() => deleteBiometric(s.id)}
+                            >
+                              Delete Biometric
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            
+            {meta.totalPages > 1 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #334155" }}>
+                <span style={{ fontSize: "0.9rem", color: "#94a3b8" }}>
+                  Showing {(meta.page - 1) * meta.limit + 1} to {Math.min(meta.page * meta.limit, meta.total)} of {meta.total} students
+                </span>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button type="button" className="secondary" disabled={meta.page <= 1} onClick={() => load(meta.page - 1)}>Previous</button>
+                  <button type="button" className="secondary" disabled={meta.page >= meta.totalPages} onClick={() => load(meta.page + 1)}>Next</button>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <p style={{ marginTop: "1rem", color: "#94a3b8" }}>
+            {q ? "No students found matching your search." : "Enter a search term above to find students."}
+          </p>
+        )}
       </div>
     </>
   );
